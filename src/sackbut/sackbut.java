@@ -714,15 +714,6 @@ public class sackbut extends JPanel implements Runnable {
     
     public sackbut() {
         points = new ArrayList<>();
-//        d.addSlider("s_{emitone}", "-20", "40", "", a -> {
-//            UIFrequency = baseNote * Math.pow(2, a / 12);
-//            if (intensity == 0) smoothFrequency = UIFrequency;
-//        });
-//        d.addSlider("t_{enseness}=.5", "0", "1", "", a -> {
-//            UITenseness = a;
-//            loudness = Math.pow(UITenseness, .25);
-//        });
-//        d.showToUser();
         
         
         setupWaveform(0);
