@@ -209,7 +209,7 @@ public class sackbut extends JPanel implements Runnable {
         public double timeAlive, lifeTime, strength, exponent;
     }
     
-    public void calculateReflections() {
+    private void calculateReflections() {
         for (int i = 0; i < n; ++i) {
             A[i] = diameter[i] * diameter[i]; // ignoring PI etc.
         }
@@ -231,7 +231,7 @@ public class sackbut extends JPanel implements Runnable {
         newReflectionNose = (2 * noseA[0] - sum) / sum;
     }
     
-    public void calculateNoseReflections() {
+    private void calculateNoseReflections() {
         for (int i = 0; i < noseLength; ++i) {
             noseA[i] = noseDiameter[i] * noseDiameter[i];
         }
@@ -240,7 +240,7 @@ public class sackbut extends JPanel implements Runnable {
         }
     }
     
-    public void runStep(final double glottalOutput, final double turbulenceNoise, final double lambda) {
+    private void runStep(final double glottalOutput, final double turbulenceNoise, final double lambda) {
         boolean updateAmplitudes = (Math.random() < 0.1);
         
         // mouth
@@ -307,7 +307,7 @@ public class sackbut extends JPanel implements Runnable {
         noseOutput = noseR[noseLength - 1];
     }
     
-    public void processTransients() {
+    private void processTransients() {
         for (int i = 0; i < transients.size(); ++i) {
             Transient trans = transients.get(i);
             double amplitude = trans.strength * Math.pow(2, -trans.exponent * trans.timeAlive);
@@ -326,7 +326,7 @@ public class sackbut extends JPanel implements Runnable {
         }
     }
     
-    public void reshapeTract(final double deltaTime) {
+    private void reshapeTract(final double deltaTime) {
         double amount = deltaTime * movementSpeed;
         int newLastObstruction = -1;
         for (int i = 0; i < n; i++) {
@@ -351,14 +351,14 @@ public class sackbut extends JPanel implements Runnable {
         noseA[0] = noseDiameter[0] * noseDiameter[0];
     }
     
-    public void addTurbulenceNoise(final double turbulenceNoise) {
+    private void addTurbulenceNoise(final double turbulenceNoise) {
         if (mouseTouch.index < 2 || mouseTouch.index >= n - 2) return;
         if (mouseTouch.diameter <= 0) return;
         if (mouseTouch.fricative_intensity == 0) return;
         addTurbulenceNoiseAtIndex(0.66 * turbulenceNoise * mouseTouch.fricative_intensity, mouseTouch.index, mouseTouch.diameter);
     }
     
-    public void addTurbulenceNoiseAtIndex(double turbulenceNoise, final double index, final double diameter) {
+    private void addTurbulenceNoiseAtIndex(double turbulenceNoise, final double index, final double diameter) {
         int i = (int) Math.floor(index);
         double delta = index - i;
         turbulenceNoise *= getNoiseModulator();
@@ -372,7 +372,7 @@ public class sackbut extends JPanel implements Runnable {
         L[i + 2] += noise1 / 2;
     }
     
-    public void addTransient(final int position) {
+    private void addTransient(final int position) {
         Transient trans = new Transient();
         trans.position = position;
         trans.timeAlive = 0;
@@ -382,7 +382,7 @@ public class sackbut extends JPanel implements Runnable {
         transients.add(trans);
     }
     
-    public void handleTouches() {
+    private void handleTouches() {
         if (touch != null && !touch.alive) touch = null;
         
         if (touch == null) {
@@ -468,7 +468,7 @@ public class sackbut extends JPanel implements Runnable {
         }
     }
     
-    public void setupWaveform(final double lambda) {
+    private void setupWaveform(final double lambda) {
         frequency = oldFrequency * (1 - lambda) + newFrequency * lambda;
         double tenseness = oldTenseness * (1 - lambda) + newTenseness * lambda;
         Rd = 3 * (1 - tenseness);
@@ -511,13 +511,13 @@ public class sackbut extends JPanel implements Runnable {
         E0 = -1 / (s * Math.exp(alpha * Te));
     }
     
-    public double getNoiseModulator() {
+    private double getNoiseModulator() {
         double voiced = 0.1 + 0.2 * Math.max(0, Math.sin(Math.PI * 2 * timeInWaveform / waveformLength));
         // return 0.3;
         return UITenseness * intensity * voiced + (1 - UITenseness * intensity) * 0.3;
     }
     
-    public void finishBlock() {
+    private void finishBlock() {
         reshapeTract(blockTime);
         calculateReflections();
         double vibrato = 0;
@@ -541,7 +541,7 @@ public class sackbut extends JPanel implements Runnable {
         intensity = MathUtil.clamp(intensity, 0, 1);
     }
     
-    public double normalizedLFWaveform(final double t) {
+    private double normalizedLFWaveform(final double t) {
         double output;
         if (t > Te)
             output = (-Math.exp(-epsilon * (t - Te)) + shift) / Delta;
@@ -550,7 +550,7 @@ public class sackbut extends JPanel implements Runnable {
     }
     
     
-    public void startSound() {
+    private void startSound() {
         randBuffer = new double[2 * sampleRate];// 2 seconds of audio
         
         for (int i = 0; i < 2 * sampleRate; ++i) randBuffer[i] = Math.random();
@@ -661,7 +661,7 @@ public class sackbut extends JPanel implements Runnable {
         return autoWobble;
     }
     
-    public void startMouse(final MouseEvent event) {
+    private void startMouse(final MouseEvent event) {
         Touch touch = new Touch();
         touch.startTime = System.currentTimeMillis() / 1000;
         touch.fricative_intensity = 0;
@@ -676,7 +676,7 @@ public class sackbut extends JPanel implements Runnable {
         handleTouches();
     }
     
-    public void moveMouse(final MouseEvent event) {
+    private void moveMouse(final MouseEvent event) {
         Touch touch = mouseTouch;
         if (!touch.alive) return;
         touch.x = event.getX();
@@ -686,7 +686,7 @@ public class sackbut extends JPanel implements Runnable {
         handleTouches();
     }
     
-    public void endMouse(final MouseEvent event) {
+    private void endMouse(final MouseEvent event) {
         Touch touch = mouseTouch;
         if (!touch.alive) return;
         touch.alive = false;
@@ -694,7 +694,7 @@ public class sackbut extends JPanel implements Runnable {
         handleTouches();
     }
     
-    public void updateTouches() {
+    private void updateTouches() {
         double fricativeAttackTime = 0.1;
         double time = System.currentTimeMillis() / 1000;
         synchronized (touchesWithMouse) {
@@ -862,7 +862,7 @@ public class sackbut extends JPanel implements Runnable {
         });
     }
     
-    public int getIndex(final double x, final double y) {
+    private int getIndex(final double x, final double y) {
         final double xx = x - originX;
         final double yy = y - originY;
         double angle = Math.atan2(yy, xx);
@@ -870,13 +870,13 @@ public class sackbut extends JPanel implements Runnable {
         return (int) ((Math.PI + angle - angleOffset) * (lipStart - 1) / (angleScale * Math.PI));
     }
     
-    public double getDiameter(final double x, final double y) {
+    private double getDiameter(final double x, final double y) {
         final double xx = x - originX;
         final double yy = y - originY;
         return (radius - Math.sqrt(xx * xx + yy * yy)) / scale;
     }
     
-    public void setRestDiameter() {
+    private void setRestDiameter() {
         for (int i = bladeStart; i < lipStart; i++) {
             final double t = 1.1 * Math.PI * (tongueIndex - i) / (tipStart - bladeStart);
             final double fixedTongueDiameter = 2 + (tongueDiameter - 2) / 1.5;
