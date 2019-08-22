@@ -83,6 +83,8 @@ public class sackbut extends JPanel implements Runnable {
     
     private static final long  serialVersionUID = -2103206856824133945L;
     private static final Color orchid           = new Color(218, 112, 214);
+    private static final Color fillColor        = new Color(255, 192, 203);
+    private static final Color lineColor        = new Color(192, 112, 198);
     private static final int   sampleRate       = 44100;
     
     private final double               radius                   = 298;
@@ -96,8 +98,6 @@ public class sackbut extends JPanel implements Runnable {
     private final double               angleOffset              = -0.24;
     private final double               noseOffset               = 0.8;
     private final double               gridOffset               = 1.7;
-    private final Color                fillColor                = new Color(255, 192, 203);
-    private final Color                lineColor                = new Color(192, 112, 198);
     private final ArrayList<Point>     points;
     private final int                  n;
     private final int                  bladeStart;
