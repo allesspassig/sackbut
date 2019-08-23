@@ -209,7 +209,7 @@ public class sackbut extends JPanel implements Runnable {
         public double timeAlive, lifeTime, strength, exponent;
     }
     
-    private void runStep(final double glottalOutput, final double turbulenceNoise, final double lambda) {
+    private void runStep(final double glottalOutput, double turbulenceNoise, final double lambda) {
         boolean updateAmplitudes = (Math.random() < 0.1);
         
         // mouth
@@ -229,7 +229,20 @@ public class sackbut extends JPanel implements Runnable {
                 }
             }
         }
-        addTurbulenceNoise(turbulenceNoise);
+        if (mouseTouch.index >= 2 && mouseTouch.index < n - 2 && mouseTouch.diameter > 0 && mouseTouch.fricative_intensity != 0) {
+            int    i     = (int) Math.floor(mouseTouch.index);
+            double delta = mouseTouch.index - i;
+            turbulenceNoise *= 0.66 * mouseTouch.fricative_intensity * UITenseness * intensity * (0.1 + 0.2 * Math.max(0, Math.sin(Math.PI * 2 * timeInWaveform / waveformLength)))
+                + (1 - UITenseness * intensity) * 0.3;
+            double thinness0 = MathUtil.clamp(8 * (0.7 - mouseTouch.diameter), 0, 1);
+            double openness  = MathUtil.clamp(30 * (mouseTouch.diameter - 0.3), 0, 1);
+            double noise0    = turbulenceNoise * (1 - delta) * thinness0 * openness;
+            double noise1    = turbulenceNoise * delta * thinness0 * openness;
+            R[i + 1] += noise0 / 2;
+            L[i + 1] += noise0 / 2;
+            R[i + 2] += noise1 / 2;
+            L[i + 2] += noise1 / 2;
+        }
         
         // glottalReflection = -0.8 + 1.6 * newTenseness;
         junctionOutputR[0] = L[0] * glottalReflection + glottalOutput;
@@ -291,24 +304,6 @@ public class sackbut extends JPanel implements Runnable {
         }
         
         noseOutput = noseR[noseLength - 1];
-    }
-    
-    private void addTurbulenceNoise(double turbulenceNoise) {
-        if (mouseTouch.index < 2 || mouseTouch.index >= n - 2) return;
-        if (mouseTouch.diameter <= 0) return;
-        if (mouseTouch.fricative_intensity == 0) return;
-        int    i     = (int) Math.floor(mouseTouch.index);
-        double delta = mouseTouch.index - i;
-        turbulenceNoise = 0.66 * mouseTouch.fricative_intensity * turbulenceNoise * UITenseness * intensity * (0.1 + 0.2 * Math.max(0, Math.sin(Math.PI * 2 * timeInWaveform / waveformLength)))
-            + (1 - UITenseness * intensity) * 0.3;
-        double thinness0 = MathUtil.clamp(8 * (0.7 - mouseTouch.diameter), 0, 1);
-        double openness  = MathUtil.clamp(30 * (mouseTouch.diameter - 0.3), 0, 1);
-        double noise0    = turbulenceNoise * (1 - delta) * thinness0 * openness;
-        double noise1    = turbulenceNoise * delta * thinness0 * openness;
-        R[i + 1] += noise0 / 2;
-        L[i + 1] += noise0 / 2;
-        R[i + 2] += noise1 / 2;
-        L[i + 2] += noise1 / 2;
     }
     
     private void handleTouches() {
