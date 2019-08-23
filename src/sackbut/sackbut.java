@@ -1,3 +1,4 @@
+
 package sackbut;
 
 import java.awt.BorderLayout;
@@ -30,6 +31,7 @@ import javax.swing.JSpinner;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
+
 
 /*
 S A C K B U T
@@ -187,7 +189,6 @@ public class sackbut extends JPanel implements Runnable {
     private int      randBufferIdx;
     private int      sampleIdx;
     
-    
     class Touch {
         int     index;
         double  diameter;
@@ -203,48 +204,31 @@ public class sackbut extends JPanel implements Runnable {
         }
     }
     
-    
     class Transient {
         public int    position;
         public double timeAlive, lifeTime, strength, exponent;
-    }
-    
-    private void calculateReflections() {
-        for (int i = 0; i < n; ++i) {
-            A[i] = diameter[i] * diameter[i]; // ignoring PI etc.
-        }
-        for (int i = 1; i < n; ++i) {
-            reflection[i] = newReflection[i];
-            if (A[i] == 0)
-                newReflection[i] = 0.999; // to prevent some bad behaviour if 0
-            else newReflection[i] = (A[i - 1] - A[i]) / (A[i - 1] + A[i]);
-        }
-        
-        // now at junction with nose
-        
-        reflectionLeft = newReflectionLeft;
-        reflectionRight = newReflectionRight;
-        reflectionNose = newReflectionNose;
-        double sum = A[noseStart] + A[noseStart + 1] + noseA[0];
-        newReflectionLeft = (2 * A[noseStart] - sum) / sum;
-        newReflectionRight = (2 * A[noseStart + 1] - sum) / sum;
-        newReflectionNose = (2 * noseA[0] - sum) / sum;
-    }
-    
-    private void calculateNoseReflections() {
-        for (int i = 0; i < noseLength; ++i) {
-            noseA[i] = noseDiameter[i] * noseDiameter[i];
-        }
-        for (int i = 1; i < noseLength; ++i) {
-            noseReflection[i] = (noseA[i - 1] - noseA[i]) / (noseA[i - 1] + noseA[i]);
-        }
     }
     
     private void runStep(final double glottalOutput, final double turbulenceNoise, final double lambda) {
         boolean updateAmplitudes = (Math.random() < 0.1);
         
         // mouth
-        processTransients();
+        for (int i = 0; i < transients.size(); ++i) {
+            Transient trans     = transients.get(i);
+            double    amplitude = trans.strength * Math.pow(2, -trans.exponent * trans.timeAlive);
+            R[trans.position] += amplitude / 2;
+            L[trans.position] += amplitude / 2;
+            trans.timeAlive   += 1.0 / (sampleRate * 2);
+        }
+        synchronized (transients) {
+            Iterator<Transient> it = transients.iterator();
+            while (it.hasNext()) {
+                Transient trans = it.next();
+                if (trans.timeAlive > trans.lifeTime) {
+                    it.remove();
+                }
+            }
+        }
         addTurbulenceNoise(turbulenceNoise);
         
         // glottalReflection = -0.8 + 1.6 * newTenseness;
@@ -261,10 +245,10 @@ public class sackbut extends JPanel implements Runnable {
         // now at junction with nose
         double r = newReflectionLeft * (1 - lambda) + reflectionLeft * lambda;
         junctionOutputL[noseStart] = r * R[noseStart - 1] + (1 + r) * (noseL[0] + L[noseStart]);
-        r = newReflectionRight * (1 - lambda) + reflectionRight * lambda;
+        r                          = newReflectionRight * (1 - lambda) + reflectionRight * lambda;
         junctionOutputR[noseStart] = r * L[noseStart] + (1 + r) * (R[noseStart - 1] + noseL[0]);
-        r = newReflectionNose * (1 - lambda) + reflectionNose * lambda;
-        noseJunctionOutputR[0] = r * noseL[0] + (1 + r) * (L[noseStart] + R[noseStart - 1]);
+        r                          = newReflectionNose * (1 - lambda) + reflectionNose * lambda;
+        noseJunctionOutputR[0]     = r * noseL[0] + (1 + r) * (L[noseStart] + R[noseStart - 1]);
         
         for (int i = 0; i < n; ++i) {
             R[i] = junctionOutputR[i] * 0.999;
@@ -274,7 +258,8 @@ public class sackbut extends JPanel implements Runnable {
                 double amplitude = Math.abs(R[i] + L[i]);
                 if (amplitude > maxAmplitude[i])
                     maxAmplitude[i] = amplitude;
-                else maxAmplitude[i] *= 0.999;
+                else
+                    maxAmplitude[i] *= 0.999;
             }
         }
         
@@ -300,86 +285,30 @@ public class sackbut extends JPanel implements Runnable {
                 double amplitude = Math.abs(noseR[i] + noseL[i]);
                 if (amplitude > noseMaxAmplitude[i])
                     noseMaxAmplitude[i] = amplitude;
-                else noseMaxAmplitude[i] *= 0.999;
+                else
+                    noseMaxAmplitude[i] *= 0.999;
             }
         }
         
         noseOutput = noseR[noseLength - 1];
     }
     
-    private void processTransients() {
-        for (int i = 0; i < transients.size(); ++i) {
-            Transient trans = transients.get(i);
-            double amplitude = trans.strength * Math.pow(2, -trans.exponent * trans.timeAlive);
-            R[trans.position] += amplitude / 2;
-            L[trans.position] += amplitude / 2;
-            trans.timeAlive += 1.0 / (sampleRate * 2);
-        }
-        synchronized (transients) {
-            Iterator<Transient> it = transients.iterator();
-            while (it.hasNext()) {
-                Transient trans = it.next();
-                if (trans.timeAlive > trans.lifeTime) {
-                    it.remove();
-                }
-            }
-        }
-    }
-    
-    private void reshapeTract(final double deltaTime) {
-        double amount = deltaTime * movementSpeed;
-        int newLastObstruction = -1;
-        for (int i = 0; i < n; i++) {
-            double diameter = this.diameter[i];
-            double targetDiameter = this.targetDiameter[i];
-            if (diameter <= 0) newLastObstruction = i;
-            double slowReturn;
-            if (i < noseStart)
-                slowReturn = 0.6;
-            else if (i >= tipStart)
-                slowReturn = 1.0;
-            else slowReturn = 0.6 + 0.4 * (i - noseStart) / (tipStart - noseStart);
-            this.diameter[i] = MathUtil.moveTowards(diameter, targetDiameter, slowReturn * amount, 2 * amount);
-        }
-        if (lastObstruction > -1 && newLastObstruction == -1 && noseA[0] < 0.05) {
-            addTransient(lastObstruction);
-        }
-        lastObstruction = newLastObstruction;
-        
-        amount = deltaTime * movementSpeed;
-        noseDiameter[0] = MathUtil.moveTowards(noseDiameter[0], velumTarget, amount * 0.25, amount * 0.1);
-        noseA[0] = noseDiameter[0] * noseDiameter[0];
-    }
-    
-    private void addTurbulenceNoise(final double turbulenceNoise) {
+    private void addTurbulenceNoise(double turbulenceNoise) {
         if (mouseTouch.index < 2 || mouseTouch.index >= n - 2) return;
         if (mouseTouch.diameter <= 0) return;
         if (mouseTouch.fricative_intensity == 0) return;
-        addTurbulenceNoiseAtIndex(0.66 * turbulenceNoise * mouseTouch.fricative_intensity, mouseTouch.index, mouseTouch.diameter);
-    }
-    
-    private void addTurbulenceNoiseAtIndex(double turbulenceNoise, final double index, final double diameter) {
-        int i = (int) Math.floor(index);
-        double delta = index - i;
-        turbulenceNoise *= getNoiseModulator();
-        double thinness0 = MathUtil.clamp(8 * (0.7 - diameter), 0, 1);
-        double openness = MathUtil.clamp(30 * (diameter - 0.3), 0, 1);
-        double noise0 = turbulenceNoise * (1 - delta) * thinness0 * openness;
-        double noise1 = turbulenceNoise * delta * thinness0 * openness;
+        int    i     = (int) Math.floor(mouseTouch.index);
+        double delta = mouseTouch.index - i;
+        turbulenceNoise = 0.66 * mouseTouch.fricative_intensity * turbulenceNoise * UITenseness * intensity * (0.1 + 0.2 * Math.max(0, Math.sin(Math.PI * 2 * timeInWaveform / waveformLength)))
+            + (1 - UITenseness * intensity) * 0.3;
+        double thinness0 = MathUtil.clamp(8 * (0.7 - mouseTouch.diameter), 0, 1);
+        double openness  = MathUtil.clamp(30 * (mouseTouch.diameter - 0.3), 0, 1);
+        double noise0    = turbulenceNoise * (1 - delta) * thinness0 * openness;
+        double noise1    = turbulenceNoise * delta * thinness0 * openness;
         R[i + 1] += noise0 / 2;
         L[i + 1] += noise0 / 2;
         R[i + 2] += noise1 / 2;
         L[i + 2] += noise1 / 2;
-    }
-    
-    private void addTransient(final int position) {
-        Transient trans = new Transient();
-        trans.position = position;
-        trans.timeAlive = 0;
-        trans.lifeTime = 0.2;
-        trans.strength = 0.3;
-        trans.exponent = 200;
-        transients.add(trans);
     }
     
     private void handleTouches() {
@@ -400,30 +329,38 @@ public class sackbut extends JPanel implements Runnable {
                 for (final Touch touch : touchesWithMouse) {
                     if (!touch.alive) continue;
                     if (touch.fricative_intensity == 1) continue; // only new touches will pass this
-                    double x = touch.x;
-                    double y = touch.y;
-                    double index = getIndex(x, y);
+                    double x        = touch.x;
+                    double y        = touch.y;
+                    double index    = getIndex(x, y);
                     double diameter = getDiameter(x, y);
-                    if (index >= tongueLowerIndexBound - 4 && index <= tongueUpperIndexBound + 4 && diameter >= innerTongueControlRadius - 0.5 && diameter <= outerTongueControlRadius + 0.5) tongueTouch = touch;
+                    if (index >= tongueLowerIndexBound - 4 && index <= tongueUpperIndexBound + 4 && diameter >= innerTongueControlRadius - 0.5 && diameter <= outerTongueControlRadius + 0.5)
+                        tongueTouch = touch;
                 }
             }
         }
         
         if (tongueTouch != null) {
-            double x = tongueTouch.x;
-            double y = tongueTouch.y;
-            double index = getIndex(x, y);
-            double diameter = getDiameter(x, y);
+            double x         = tongueTouch.x;
+            double y         = tongueTouch.y;
+            double index     = getIndex(x, y);
+            double diameter  = getDiameter(x, y);
             double fromPoint = (outerTongueControlRadius - diameter) / (outerTongueControlRadius - innerTongueControlRadius);
-            fromPoint = MathUtil.clamp(fromPoint, 0, 1);
-            fromPoint = Math.pow(fromPoint, 0.58) - 0.2 * (fromPoint * fromPoint - fromPoint); // horrible kludge to fit curve to straight line
+            fromPoint      = MathUtil.clamp(fromPoint, 0, 1);
+            fromPoint      = Math.pow(fromPoint, 0.58) - 0.2 * (fromPoint * fromPoint - fromPoint); // horrible kludge to fit curve to straight line
             tongueDiameter = MathUtil.clamp(diameter, innerTongueControlRadius, outerTongueControlRadius);
             // this.tongueIndex = MathUtil.clamp(index, this.tongueLowerIndexBound, this.tongueUpperIndexBound);
             double out = fromPoint * 0.5 * (tongueUpperIndexBound - tongueLowerIndexBound);
             tongueIndex = MathUtil.clamp(index, tongueIndexCentre - out, tongueIndexCentre + out);
         }
         
-        setRestDiameter();
+        for (int i = bladeStart; i < lipStart; i++) {
+            final double t                   = 1.1 * Math.PI * (tongueIndex - i) / (tipStart - bladeStart);
+            final double fixedTongueDiameter = 2 + (tongueDiameter - 2) / 1.5;
+            double       curve               = (1.5 - fixedTongueDiameter + gridOffset) * Math.cos(t);
+            if (i == bladeStart - 2 || i == lipStart - 1) curve *= 0.8;
+            if (i == bladeStart || i == lipStart - 2) curve *= 0.94;
+            restDiameter[i] = 1.5 - curve;
+        }
         for (int i = 0; i < n; i++) targetDiameter[i] = restDiameter[i];
         
         // other constrictions and nose
@@ -431,9 +368,9 @@ public class sackbut extends JPanel implements Runnable {
         synchronized (touchesWithMouse) {
             for (final Touch touch : touchesWithMouse) {
                 if (!touch.alive) continue;
-                double x = touch.x;
-                double y = touch.y;
-                double index = getIndex(x, y);
+                double x        = touch.x;
+                double y        = touch.y;
+                double index    = getIndex(x, y);
                 double diameter = getDiameter(x, y);
                 if (index > noseStart && diameter < -noseOffset) {
                     velumTarget = 0.4;
@@ -446,7 +383,8 @@ public class sackbut extends JPanel implements Runnable {
                     width = 10;
                 else if (index >= tipStart)
                     width = 5;
-                else width = 10 - 5 * (index - 25) / (tipStart - 25);
+                else
+                    width = 10 - 5 * (index - 25) / (tipStart - 25);
                 if (index >= 2 && index < n && diameter < 3) {
                     int intIndex = (int) Math.round(index);
                     for (int i = -(int) Math.ceil(width) - 1; i < width + 1; i++) {
@@ -458,7 +396,8 @@ public class sackbut extends JPanel implements Runnable {
                             shrink = 0;
                         else if (relpos > width)
                             shrink = 1;
-                        else shrink = 0.5 * (1 - Math.cos(Math.PI * relpos / width));
+                        else
+                            shrink = 0.5 * (1 - Math.cos(Math.PI * relpos / width));
                         if (diameter < targetDiameter[intIndex + i]) {
                             targetDiameter[intIndex + i] = diameter + (targetDiameter[intIndex + i] - diameter) * shrink;
                         }
@@ -467,88 +406,6 @@ public class sackbut extends JPanel implements Runnable {
             }
         }
     }
-    
-    private void setupWaveform(final double lambda) {
-        frequency = oldFrequency * (1 - lambda) + newFrequency * lambda;
-        double tenseness = oldTenseness * (1 - lambda) + newTenseness * lambda;
-        Rd = 3 * (1 - tenseness);
-        waveformLength = 1.0 / frequency;
-        
-        if (Rd < 0.5) Rd = 0.5;
-        if (Rd > 2.7) Rd = 2.7;
-        // normalized to time = 1, Ee = 1
-        double Ra = -0.01 + 0.048 * Rd;
-        double Rk = 0.224 + 0.118 * Rd;
-        double Rg = (Rk / 4) * (0.5 + 1.2 * Rk) / (0.11 * Rd - Ra * (0.5 + 1.2 * Rk));
-        
-        double Ta = Ra;
-        double Tp = 1 / (2 * Rg);
-        Te = Tp + Tp * Rk; //
-        
-        epsilon = 1 / Ta;
-        shift = Math.exp(-epsilon * (1 - Te));
-        Delta = 1 - shift; // divide by this to scale RHS
-        
-        double RHSIntegral = (1 / epsilon) * (shift - 1) + (1 - Te) * shift;
-        RHSIntegral = RHSIntegral / Delta;
-        
-        double totalLowerIntegral = -(Te - Tp) / 2 + RHSIntegral;
-        double totalUpperIntegral = -totalLowerIntegral;
-        
-        omega = Math.PI / Tp;
-        double s = Math.sin(omega * Te);
-        // need E0*e^(alpha*Te)*s = -1 (to meet the return at -1)
-        // and E0*e^(alpha*Tp/2) * Tp*2/pi = totalUpperIntegral
-        // (our approximation of the integral up to Tp)
-        // writing x for e^alpha,
-        // have E0*x^Te*s = -1 and E0 * x^(Tp/2) * Tp*2/pi = totalUpperIntegral
-        // dividing the second by the first,
-        // letting y = x^(Tp/2 - Te),
-        // y * Tp*2 / (pi*s) = -totalUpperIntegral;
-        double y = -Math.PI * s * totalUpperIntegral / (Tp * 2);
-        double z = Math.log(y);
-        alpha = z / (Tp / 2 - Te);
-        E0 = -1 / (s * Math.exp(alpha * Te));
-    }
-    
-    private double getNoiseModulator() {
-        double voiced = 0.1 + 0.2 * Math.max(0, Math.sin(Math.PI * 2 * timeInWaveform / waveformLength));
-        // return 0.3;
-        return UITenseness * intensity * voiced + (1 - UITenseness * intensity) * 0.3;
-    }
-    
-    private void finishBlock() {
-        reshapeTract(blockTime);
-        calculateReflections();
-        double vibrato = 0;
-        vibrato += vibratoAmount * Math.sin(2 * Math.PI * totalTime * vibratoFrequency);
-        vibrato += 0.02 * MathUtil.getInstance().simplex1(totalTime * 4.07);
-        vibrato += 0.04 * MathUtil.getInstance().simplex1(totalTime * 2.15);
-        if (autoWobble) {
-            vibrato += 0.2 * MathUtil.getInstance().simplex1(totalTime * 0.98);
-            vibrato += 0.4 * MathUtil.getInstance().simplex1(totalTime * 0.5);
-        }
-        if (UIFrequency > smoothFrequency) smoothFrequency = Math.min(smoothFrequency * 1.1, UIFrequency);
-        if (UIFrequency < smoothFrequency) smoothFrequency = Math.max(smoothFrequency / 1.1, UIFrequency);
-        oldFrequency = newFrequency;
-        newFrequency = smoothFrequency * (1 + vibrato);
-        oldTenseness = newTenseness;
-        newTenseness = UITenseness + 0.1 * MathUtil.getInstance().simplex1(totalTime * 0.46) + 0.05 * MathUtil.getInstance().simplex1(totalTime * 0.36);
-        if (!isTouched && alwaysVoice) newTenseness += (3 - UITenseness) * (1 - intensity);
-        if (isTouched || alwaysVoice)
-            intensity += 0.13;
-        else intensity -= 0.05;
-        intensity = MathUtil.clamp(intensity, 0, 1);
-    }
-    
-    private double normalizedLFWaveform(final double t) {
-        double output;
-        if (t > Te)
-            output = (-Math.exp(-epsilon * (t - Te)) + shift) / Delta;
-        else output = E0 * Math.exp(alpha * t) * Math.sin(omega * t);
-        return output * intensity * loudness;
-    }
-    
     
     private void startSound() {
         randBuffer = new double[2 * sampleRate];// 2 seconds of audio
@@ -565,7 +422,7 @@ public class sackbut extends JPanel implements Runnable {
             while (soundOn) {
                 while (sdl.available() > (int) (.6 * sdl.getBufferSize())) {
                     for (int i = 0; i < frameSize; ++i) {
-                        frame[i] = double2byte(doGlottisTractStuff(fricative(aspirate(whiteNoise()))));
+                        frame[i] = double2byte(doGlottisTractStuff(fricative(aspirate(randBuffer[randBufferIdx = (randBufferIdx + 1) % randBuffer.length]))));
                     }
                     sdl.write(frame, 0, frameSize);
                 }
@@ -576,13 +433,10 @@ public class sackbut extends JPanel implements Runnable {
         }
     }
     
-    private double whiteNoise() {
-        return randBuffer[randBufferIdx = (randBufferIdx + 1) % randBuffer.length];
-    }
-    
     private double aspirate(final double in) {
         aspirateMemory[2] = in;
-        aspirateMemory[5] = aspirateConsts[2] * aspirateMemory[2] + aspirateConsts[3] * aspirateMemory[1] + aspirateConsts[4] * aspirateMemory[0] - aspirateConsts[0] * aspirateMemory[4] - aspirateConsts[1] * aspirateMemory[3];
+        aspirateMemory[5] = aspirateConsts[2] * aspirateMemory[2] + aspirateConsts[3] * aspirateMemory[1] + aspirateConsts[4] * aspirateMemory[0] - aspirateConsts[0] * aspirateMemory[4]
+            - aspirateConsts[1] * aspirateMemory[3];
         aspirateMemory[0] = aspirateMemory[1];
         aspirateMemory[1] = aspirateMemory[2];
         aspirateMemory[3] = aspirateMemory[4];
@@ -592,7 +446,8 @@ public class sackbut extends JPanel implements Runnable {
     
     private double fricative(final double in) {
         fricativeMemory[2] = in;
-        fricativeMemory[5] = fricativeConsts[2] * fricativeMemory[2] + fricativeConsts[3] * fricativeMemory[1] + fricativeConsts[4] * fricativeMemory[0] - fricativeConsts[0] * fricativeMemory[4] - fricativeConsts[1] * fricativeMemory[3];
+        fricativeMemory[5] = fricativeConsts[2] * fricativeMemory[2] + fricativeConsts[3] * fricativeMemory[1] + fricativeConsts[4] * fricativeMemory[0] - fricativeConsts[0] * fricativeMemory[4]
+            - fricativeConsts[1] * fricativeMemory[3];
         fricativeMemory[0] = fricativeMemory[1];
         fricativeMemory[1] = fricativeMemory[2];
         fricativeMemory[3] = fricativeMemory[4];
@@ -607,18 +462,64 @@ public class sackbut extends JPanel implements Runnable {
     // usually in the range [-1,1]
     // almost always in the range [-2,2]
     private double doGlottisTractStuff(final double in) {
-        double lambda1 = sampleIdx / blockSize;
-        double lambda2 = (sampleIdx + 0.5) / blockSize;
+        double lambda1  = sampleIdx / blockSize;
+        double lambda2  = (sampleIdx + 0.5) / blockSize;
         double timeStep = 1.0 / sampleRate;
         timeInWaveform += timeStep;
-        totalTime += timeStep;
+        totalTime      += timeStep;
         if (timeInWaveform > waveformLength) {
             timeInWaveform -= waveformLength;
-            setupWaveform(lambda1);
+            frequency       = oldFrequency * (1 - lambda1) + newFrequency * lambda1;
+            double tenseness = oldTenseness * (1 - lambda1) + newTenseness * lambda1;
+            Rd             = 3 * (1 - tenseness);
+            waveformLength = 1.0 / frequency;
+            
+            if (Rd < 0.5) Rd = 0.5;
+            if (Rd > 2.7) Rd = 2.7;
+            // normalized to time = 1, Ee = 1
+            double Ra = -0.01 + 0.048 * Rd;
+            double Rk = 0.224 + 0.118 * Rd;
+            double Rg = (Rk / 4) * (0.5 + 1.2 * Rk) / (0.11 * Rd - Ra * (0.5 + 1.2 * Rk));
+            
+            double Ta = Ra;
+            double Tp = 1 / (2 * Rg);
+            Te = Tp + Tp * Rk;
+            
+            epsilon = 1 / Ta;
+            shift   = Math.exp(-epsilon * (1 - Te));
+            Delta   = 1 - shift; // divide by this to scale RHS
+            
+            double RHSIntegral = (1 / epsilon) * (shift - 1) + (1 - Te) * shift;
+            RHSIntegral = RHSIntegral / Delta;
+            
+            double totalLowerIntegral = -(Te - Tp) / 2 + RHSIntegral;
+            double totalUpperIntegral = -totalLowerIntegral;
+            
+            omega = Math.PI / Tp;
+            double s = Math.sin(omega * Te);
+            // need E0*e^(alpha*Te)*s = -1 (to meet the return at -1)
+            // and E0*e^(alpha*Tp/2) * Tp*2/pi = totalUpperIntegral
+            // (our approximation of the integral up to Tp)
+            // writing x for e^alpha,
+            // have E0*x^Te*s = -1 and E0 * x^(Tp/2) * Tp*2/pi = totalUpperIntegral
+            // dividing the second by the first,
+            // letting y = x^(Tp/2 - Te),
+            // y * Tp*2 / (pi*s) = -totalUpperIntegral;
+            double y = -Math.PI * s * totalUpperIntegral / (Tp * 2);
+            double z = Math.log(y);
+            alpha = z / (Tp / 2 - Te);
+            E0    = -1 / (s * Math.exp(alpha * Te));
         }
-        double glottalOutput = normalizedLFWaveform(timeInWaveform / waveformLength);
-        double aspiration = intensity * (1 - Math.sqrt(UITenseness)) * getNoiseModulator() * in;
-        aspiration *= 0.2 + 0.02 * MathUtil.getInstance().simplex1(totalTime * 1.99);
+        double glottalOutput;
+        double t = timeInWaveform / waveformLength;
+        if (t > Te)
+            glottalOutput = (-Math.exp(-epsilon * (t - Te)) + shift) / Delta;
+        else
+            glottalOutput = E0 * Math.exp(alpha * t) * Math.sin(omega * t);
+        glottalOutput *= intensity * loudness;
+        double aspiration = intensity * (1 - Math.sqrt(UITenseness)) * in * UITenseness * intensity * (0.1 + 0.2 * Math.max(0, Math.sin(Math.PI * 2 * timeInWaveform / waveformLength)))
+            + (1 - UITenseness * intensity) * 0.3;
+        aspiration    *= 0.2 + 0.02 * MathUtil.getInstance().simplex1(totalTime * 1.99);
         glottalOutput += aspiration;
         
         double vocalOutput = 0;
@@ -629,7 +530,75 @@ public class sackbut extends JPanel implements Runnable {
         vocalOutput += lipOutput + noseOutput;
         
         if ((sampleIdx = (sampleIdx + 1) % blockSize) % blockSize == 0) {
-            finishBlock();
+            double amount             = blockTime * movementSpeed;
+            int    newLastObstruction = -1;
+            for (int i = 0; i < n; i++) {
+                double diameter       = this.diameter[i];
+                double targetDiameter = this.targetDiameter[i];
+                if (diameter <= 0) newLastObstruction = i;
+                double slowReturn;
+                if (i < noseStart)
+                    slowReturn = 0.6;
+                else if (i >= tipStart)
+                    slowReturn = 1.0;
+                else
+                    slowReturn = 0.6 + 0.4 * (i - noseStart) / (tipStart - noseStart);
+                this.diameter[i] = MathUtil.moveTowards(diameter, targetDiameter, slowReturn * amount, 2 * amount);
+            }
+            if (lastObstruction > -1 && newLastObstruction == -1 && noseA[0] < 0.05) {
+                Transient trans = new Transient();
+                trans.position  = lastObstruction;
+                trans.timeAlive = 0;
+                trans.lifeTime  = 0.2;
+                trans.strength  = 0.3;
+                trans.exponent  = 200;
+                transients.add(trans);
+            }
+            lastObstruction = newLastObstruction;
+            
+            amount          = blockTime * movementSpeed;
+            noseDiameter[0] = MathUtil.moveTowards(noseDiameter[0], velumTarget, amount * 0.25, amount * 0.1);
+            noseA[0]        = noseDiameter[0] * noseDiameter[0];
+            for (int i = 0; i < n; ++i) {
+                A[i] = diameter[i] * diameter[i]; // ignoring PI etc.
+            }
+            for (int i = 1; i < n; ++i) {
+                reflection[i] = newReflection[i];
+                if (A[i] == 0)
+                    newReflection[i] = 0.999; // to prevent some bad behaviour if 0
+                else
+                    newReflection[i] = (A[i - 1] - A[i]) / (A[i - 1] + A[i]);
+            }
+            
+            // now at junction with nose
+            
+            reflectionLeft  = newReflectionLeft;
+            reflectionRight = newReflectionRight;
+            reflectionNose  = newReflectionNose;
+            double sum = A[noseStart] + A[noseStart + 1] + noseA[0];
+            newReflectionLeft  = (2 * A[noseStart] - sum) / sum;
+            newReflectionRight = (2 * A[noseStart + 1] - sum) / sum;
+            newReflectionNose  = (2 * noseA[0] - sum) / sum;
+            double vibrato = 0;
+            vibrato += vibratoAmount * Math.sin(2 * Math.PI * totalTime * vibratoFrequency);
+            vibrato += 0.02 * MathUtil.getInstance().simplex1(totalTime * 4.07);
+            vibrato += 0.04 * MathUtil.getInstance().simplex1(totalTime * 2.15);
+            if (autoWobble) {
+                vibrato += 0.2 * MathUtil.getInstance().simplex1(totalTime * 0.98);
+                vibrato += 0.4 * MathUtil.getInstance().simplex1(totalTime * 0.5);
+            }
+            if (UIFrequency > smoothFrequency) smoothFrequency = Math.min(smoothFrequency * 1.1, UIFrequency);
+            if (UIFrequency < smoothFrequency) smoothFrequency = Math.max(smoothFrequency / 1.1, UIFrequency);
+            oldFrequency = newFrequency;
+            newFrequency = smoothFrequency * (1 + vibrato);
+            oldTenseness = newTenseness;
+            newTenseness = UITenseness + 0.1 * MathUtil.getInstance().simplex1(totalTime * 0.46) + 0.05 * MathUtil.getInstance().simplex1(totalTime * 0.36);
+            if (!isTouched && alwaysVoice) newTenseness += (3 - UITenseness) * (1 - intensity);
+            if (isTouched || alwaysVoice)
+                intensity += 0.13;
+            else
+                intensity -= 0.05;
+            intensity = MathUtil.clamp(intensity, 0, 1);
         }
         
         return vocalOutput * 0.125;
@@ -663,15 +632,15 @@ public class sackbut extends JPanel implements Runnable {
     
     private void startMouse(final MouseEvent event) {
         Touch touch = new Touch();
-        touch.startTime = System.currentTimeMillis() / 1000;
+        touch.startTime           = System.currentTimeMillis() / 1000;
         touch.fricative_intensity = 0;
-        touch.endTime = 0;
-        touch.alive = true;
-        touch.x = event.getX() - originX;
-        touch.y = event.getY() - originY;
-        touch.index = getIndex(touch.x, touch.y);
-        touch.diameter = getDiameter(touch.x, touch.y);
-        mouseTouch = touch;
+        touch.endTime             = 0;
+        touch.alive               = true;
+        touch.x                   = event.getX() - originX;
+        touch.y                   = event.getY() - originY;
+        touch.index               = getIndex(touch.x, touch.y);
+        touch.diameter            = getDiameter(touch.x, touch.y);
+        mouseTouch                = touch;
         touchesWithMouse.add(touch);
         handleTouches();
     }
@@ -679,9 +648,9 @@ public class sackbut extends JPanel implements Runnable {
     private void moveMouse(final MouseEvent event) {
         Touch touch = mouseTouch;
         if (!touch.alive) return;
-        touch.x = event.getX();
-        touch.y = event.getY();
-        touch.index = getIndex(touch.x, touch.y);
+        touch.x        = event.getX();
+        touch.y        = event.getY();
+        touch.index    = getIndex(touch.x, touch.y);
         touch.diameter = getDiameter(touch.x, touch.y);
         handleTouches();
     }
@@ -689,14 +658,14 @@ public class sackbut extends JPanel implements Runnable {
     private void endMouse(final MouseEvent event) {
         Touch touch = mouseTouch;
         if (!touch.alive) return;
-        touch.alive = false;
+        touch.alive   = false;
         touch.endTime = System.currentTimeMillis() / 1000;
         handleTouches();
     }
     
     private void updateTouches() {
         double fricativeAttackTime = 0.1;
-        double time = System.currentTimeMillis() / 1000;
+        double time                = System.currentTimeMillis() / 1000;
         synchronized (touchesWithMouse) {
             final Iterator<Touch> it = touchesWithMouse.iterator();
             while (it.hasNext()) {
@@ -715,66 +684,137 @@ public class sackbut extends JPanel implements Runnable {
     public sackbut() {
         points = new ArrayList<>();
         
+        frequency = oldFrequency;
+        double tenseness = oldTenseness;
+        Rd             = 3 * (1 - tenseness);
+        waveformLength = 1.0 / frequency;
         
-        setupWaveform(0);
+        if (Rd < 0.5) Rd = 0.5;
+        if (Rd > 2.7) Rd = 2.7;
+        // normalized to time = 1, Ee = 1
+        double Ra = -0.01 + 0.048 * Rd;
+        double Rk = 0.224 + 0.118 * Rd;
+        double Rg = (Rk / 4) * (0.5 + 1.2 * Rk) / (0.11 * Rd - Ra * (0.5 + 1.2 * Rk));
         
-        n = 44;
-        bladeStart = 10;
-        tipStart = 32;
-        lipStart = 39;
-        diameter = new double[n];
-        restDiameter = new double[n];
+        double Ta = Ra;
+        double Tp = 1 / (2 * Rg);
+        Te = Tp + Tp * Rk;
+        
+        epsilon = 1 / Ta;
+        shift   = Math.exp(-epsilon * (1 - Te));
+        Delta   = 1 - shift; // divide by this to scale RHS
+        
+        double RHSIntegral = (1 / epsilon) * (shift - 1) + (1 - Te) * shift;
+        RHSIntegral = RHSIntegral / Delta;
+        
+        double totalLowerIntegral = -(Te - Tp) / 2 + RHSIntegral;
+        double totalUpperIntegral = -totalLowerIntegral;
+        
+        omega = Math.PI / Tp;
+        double s = Math.sin(omega * Te);
+        // need E0*e^(alpha*Te)*s = -1 (to meet the return at -1)
+        // and E0*e^(alpha*Tp/2) * Tp*2/pi = totalUpperIntegral
+        // (our approximation of the integral up to Tp)
+        // writing x for e^alpha,
+        // have E0*x^Te*s = -1 and E0 * x^(Tp/2) * Tp*2/pi = totalUpperIntegral
+        // dividing the second by the first,
+        // letting y = x^(Tp/2 - Te),
+        // y * Tp*2 / (pi*s) = -totalUpperIntegral;
+        double y = -Math.PI * s * totalUpperIntegral / (Tp * 2);
+        double z = Math.log(y);
+        alpha = z / (Tp / 2 - Te);
+        E0    = -1 / (s * Math.exp(alpha * Te));
+        
+        n              = 44;
+        bladeStart     = 10;
+        tipStart       = 32;
+        lipStart       = 39;
+        diameter       = new double[n];
+        restDiameter   = new double[n];
         targetDiameter = new double[n];
-        newDiameter = new double[n];
+        newDiameter    = new double[n];
         for (int i = 0; i < diameter.length; ++i) {
             if (i < 6.5)
                 diameter[i] = restDiameter[i] = targetDiameter[i] = newDiameter[i] = 0.6;
             else if (i < 12)
                 diameter[i] = restDiameter[i] = targetDiameter[i] = newDiameter[i] = 1.1;
-            else diameter[i] = restDiameter[i] = targetDiameter[i] = newDiameter[i] = 1.5;
+            else
+                diameter[i] = restDiameter[i] = targetDiameter[i] = newDiameter[i] = 1.5;
         }
-        R = new double[n];
-        L = new double[n];
-        reflection = new double[n + 1];
-        newReflection = new double[n + 1];
+        R               = new double[n];
+        L               = new double[n];
+        reflection      = new double[n + 1];
+        newReflection   = new double[n + 1];
         junctionOutputR = new double[n + 1];
         junctionOutputL = new double[n + 1];
-        A = new double[n + 1];
-        maxAmplitude = new double[n];
+        A               = new double[n + 1];
+        maxAmplitude    = new double[n];
         
-        noseLength = 28;
-        noseStart = n - noseLength + 1;
-        noseR = new double[noseLength];
-        noseL = new double[noseLength];
+        noseLength          = 28;
+        noseStart           = n - noseLength + 1;
+        noseR               = new double[noseLength];
+        noseL               = new double[noseLength];
         noseJunctionOutputR = new double[noseLength + 1];
         noseJunctionOutputL = new double[noseLength + 1];
-        noseReflection = new double[noseLength + 1];
-        noseDiameter = new double[noseLength];
-        noseA = new double[noseLength];
-        noseMaxAmplitude = new double[noseLength];
+        noseReflection      = new double[noseLength + 1];
+        noseDiameter        = new double[noseLength];
+        noseA               = new double[noseLength];
+        noseMaxAmplitude    = new double[noseLength];
         for (int i = 0; i < noseDiameter.length; ++i) {
             double d = 2d * i / noseDiameter.length;
             if (d < 1)
                 noseDiameter[i] = Math.min(1.9, 0.4 + 1.6 * d);
-            else noseDiameter[i] = Math.min(1.9, 0.5 + 1.5 * (2 - d));
+            else
+                noseDiameter[i] = Math.min(1.9, 0.5 + 1.5 * (2 - d));
         }
         newReflectionLeft = newReflectionRight = newReflectionNose = 0;
-        calculateReflections();
-        calculateNoseReflections();
-        noseDiameter[0] = velumTarget;
-        transients = new ArrayList<>();
+        for (int i = 0; i < n; ++i) {
+            A[i] = diameter[i] * diameter[i]; // ignoring PI etc.
+        }
+        for (int i = 1; i < n; ++i) {
+            reflection[i] = newReflection[i];
+            if (A[i] == 0)
+                newReflection[i] = 0.999; // to prevent some bad behaviour if 0
+            else
+                newReflection[i] = (A[i - 1] - A[i]) / (A[i - 1] + A[i]);
+        }
         
-        setRestDiameter();
+        // now at junction with nose
+        
+        reflectionLeft  = newReflectionLeft;
+        reflectionRight = newReflectionRight;
+        reflectionNose  = newReflectionNose;
+        double sum = A[noseStart] + A[noseStart + 1] + noseA[0];
+        newReflectionLeft  = (2 * A[noseStart] - sum) / sum;
+        newReflectionRight = (2 * A[noseStart + 1] - sum) / sum;
+        newReflectionNose  = (2 * noseA[0] - sum) / sum;
+        for (int i = 0; i < noseLength; ++i) {
+            noseA[i] = noseDiameter[i] * noseDiameter[i];
+        }
+        for (int i = 1; i < noseLength; ++i) {
+            noseReflection[i] = (noseA[i - 1] - noseA[i]) / (noseA[i - 1] + noseA[i]);
+        }
+        noseDiameter[0] = velumTarget;
+        transients      = new ArrayList<>();
+        
+        for (int i = bladeStart; i < lipStart; i++) {
+            final double t                   = 1.1 * Math.PI * (tongueIndex - i) / (tipStart - bladeStart);
+            final double fixedTongueDiameter = 2 + (tongueDiameter - 2) / 1.5;
+            double       curve               = (1.5 - fixedTongueDiameter + gridOffset) * Math.cos(t);
+            if (i == bladeStart - 2 || i == lipStart - 1) curve *= 0.8;
+            if (i == bladeStart || i == lipStart - 2) curve *= 0.94;
+            restDiameter[i] = 1.5 - curve;
+        }
         tongueLowerIndexBound = bladeStart + 2;
         tongueUpperIndexBound = tipStart - 3;
-        tongueIndexCentre = 0.5 * (tongueLowerIndexBound + tongueUpperIndexBound);
+        tongueIndexCentre     = 0.5 * (tongueLowerIndexBound + tongueUpperIndexBound);
         
         blockSize = 512;
         blockTime = (double) blockSize / sampleRate;
-        soundOn = false;
-        started = false;
+        soundOn   = false;
+        started   = false;
         
-        AudioFormat format = new AudioFormat(sampleRate, 16, 1, true, true);
+        AudioFormat    format      = new AudioFormat(sampleRate, 16, 1, true, true);
         SourceDataLine nonFinalSdl = null;
         try {
             nonFinalSdl = javax.sound.sampled.AudioSystem.getSourceDataLine(format);
@@ -790,21 +830,21 @@ public class sackbut extends JPanel implements Runnable {
             System.exit(0);
         }
         frameSize = sdl.getFormat().getFrameSize();
-        frame = new byte[frameSize];
+        frame     = new byte[frameSize];
         
-        aspirateConsts = new double[5];
+        aspirateConsts  = new double[5];
         fricativeConsts = new double[5];
-        aspirateMemory = new double[6];
+        aspirateMemory  = new double[6];
         fricativeMemory = new double[6];
-        double omega = 2 * Math.PI * 500 / 44100d;
+        double omega    = 2 * Math.PI * 500 / 44100d;
         double sinOmega = Math.sin(omega);
-        aspirateConsts[0] = sinOmega / (1 + sinOmega); // a_1
-        aspirateConsts[1] = 0; // a_2
-        aspirateConsts[2] = -sinOmega / (1 + sinOmega); // b_0
-        aspirateConsts[3] = -2 * Math.cos(omega) / (1 + sinOmega); // b_1
-        aspirateConsts[4] = (1 - sinOmega) / (1 + sinOmega); // b_2
-        omega = 2 * Math.PI * 1000 / 44100d;
-        sinOmega = Math.sin(omega);
+        aspirateConsts[0]  = sinOmega / (1 + sinOmega); // a_1
+        aspirateConsts[1]  = 0; // a_2
+        aspirateConsts[2]  = -sinOmega / (1 + sinOmega); // b_0
+        aspirateConsts[3]  = -2 * Math.cos(omega) / (1 + sinOmega); // b_1
+        aspirateConsts[4]  = (1 - sinOmega) / (1 + sinOmega); // b_2
+        omega              = 2 * Math.PI * 1000 / 44100d;
+        sinOmega           = Math.sin(omega);
         fricativeConsts[0] = sinOmega / (1 + sinOmega); // a_1
         fricativeConsts[1] = 0; // a_2
         fricativeConsts[2] = -sinOmega / (1 + sinOmega); // b_0
@@ -854,9 +894,9 @@ public class sackbut extends JPanel implements Runnable {
     }
     
     private int getIndex(final double x, final double y) {
-        final double xx = x - originX;
-        final double yy = y - originY;
-        double angle = Math.atan2(yy, xx);
+        final double xx    = x - originX;
+        final double yy    = y - originY;
+        double       angle = Math.atan2(yy, xx);
         while (angle > 0) angle -= 2 * Math.PI;
         return (int) ((Math.PI + angle - angleOffset) * (lipStart - 1) / (angleScale * Math.PI));
     }
@@ -867,30 +907,19 @@ public class sackbut extends JPanel implements Runnable {
         return (radius - Math.sqrt(xx * xx + yy * yy)) / scale;
     }
     
-    private void setRestDiameter() {
-        for (int i = bladeStart; i < lipStart; i++) {
-            final double t = 1.1 * Math.PI * (tongueIndex - i) / (tipStart - bladeStart);
-            final double fixedTongueDiameter = 2 + (tongueDiameter - 2) / 1.5;
-            double curve = (1.5 - fixedTongueDiameter + gridOffset) * Math.cos(t);
-            if (i == bladeStart - 2 || i == lipStart - 1) curve *= 0.8;
-            if (i == bladeStart || i == lipStart - 2) curve *= 0.94;
-            restDiameter[i] = 1.5 - curve;
-        }
-    }
-    
     private Point indexDia2G2DPoint(final double e, final double d) {
-        double angle = angleOffset + e * angleScale * Math.PI / (lipStart - 1);
+        double angle  = angleOffset + e * angleScale * Math.PI / (lipStart - 1);
         double wobble = (maxAmplitude[n - 1] + noseMaxAmplitude[noseLength - 1]);
         wobble *= 0.03 * Math.sin(2 * e - System.currentTimeMillis() / 20) * e / n;
-        angle += wobble;
+        angle  += wobble;
         double r = radius - scale * d + 100 * wobble;
         return new Point((int) (originX - r * Math.cos(angle)), (int) (originY - r * Math.sin(angle)));
     }
     
     private void drawText(final double e, final double d, final String text, final Graphics g, final boolean rotate) {
-        final double angle = angleOffset + e * angleScale * Math.PI / (lipStart - 1);
-        final double r = radius - scale * d;
-        final Graphics2D g2d = (Graphics2D) g.create();
+        final double     angle = angleOffset + e * angleScale * Math.PI / (lipStart - 1);
+        final double     r     = radius - scale * d;
+        final Graphics2D g2d   = (Graphics2D) g.create();
         g2d.translate(originX - r * Math.cos(angle), originY - r * Math.sin(angle) + 2); // +8);
         if (rotate) g2d.rotate(angle - Math.PI / 2);
         g2d.drawString(text, 0, 0);
@@ -909,7 +938,7 @@ public class sackbut extends JPanel implements Runnable {
         drawText(n * 0.95, -0.28, " lip", g, true);
         
         g.setFont(g.getFont().deriveFont(17f));
-//        drawText(n * 0.18, 3, " tongue control", g, false);
+        // drawText(n * 0.18, 3, " tongue control", g, false);
         drawText(n * 1.03, -1.07, "nasals", g, true);
         drawText(n * 1.03, -0.28, "stops", g, true);
         drawText(n * 1.03, 0.51, "fricatives", g, true);
@@ -1015,7 +1044,7 @@ public class sackbut extends JPanel implements Runnable {
         
         g.setColor(Color.RED.brighter());
         g.setFont(g.getFont().deriveFont(24f));
-        int a = 2;
+        int    a = 2;
         double b = 1.5;
         drawText(15, a + b * 0.60, "" + (char) 0xe6, g, true); // pat
         drawText(13, a + b * 0.27, "" + (char) 0x251, g, true); // part
@@ -1025,13 +1054,13 @@ public class sackbut extends JPanel implements Runnable {
         drawText(27.4, a + b * 0.21, "" + 'i', g, true); // peat
         drawText(20, a + b * 1.00, "" + 'e', g, true); // pet
         drawText(18.1, a + b * 0.37, "" + (char) 0x28c, g, true); // putt
-        // put 0x28a
+        // put ʊ
         drawText(23, a + b * 0.1, "" + 'u', g, true); // poot (rounded)
-        drawText(21, a + b * 0.6, "" + (char) 0x259, g, true); // pert [should be 0x25c]
+        drawText(21, a + b * 0.6, "" + (char) 0x259, g, true); // pert [should be ɜ]
         
-        final double nasals = -1.1;
-        final double stops = -0.4;
-        final double fricatives = 0.3;
+        final double nasals       = -1.1;
+        final double stops        = -0.4;
+        final double fricatives   = 0.3;
         final double approximants = 1.1;
         
         // approximants
@@ -1072,23 +1101,26 @@ public class sackbut extends JPanel implements Runnable {
                 return min;
             else if (number > max)
                 return max;
-            else return number;
+            else
+                return number;
         }
         
         public static double moveTowards(final double current, final double target, final double amount) {
             if (current < target)
                 return Math.min(current + amount, target);
-            else return Math.max(current - amount, target);
+            else
+                return Math.max(current - amount, target);
         }
         
         public static double moveTowards(final double current, final double target, final double amountUp, final double amountDown) {
             if (current < target)
                 return Math.min(current + amountUp, target);
-            else return Math.max(current - amountDown, target);
+            else
+                return Math.max(current - amountDown, target);
         }
         
         private MathUtil() {
-            perm = new int[512];
+            perm  = new int[512];
             gradP = new Grad[512];
             
             long seed = System.currentTimeMillis();
@@ -1109,13 +1141,16 @@ public class sackbut extends JPanel implements Runnable {
                     v = p[i] ^ ((seed >> 8) & 255);
                 }
                 
-                perm[i] = perm[i + 256] = (int) v;
+                perm[i]  = perm[i + 256] = (int) v;
                 gradP[i] = gradP[i + 256] = grad3[(int) (v % 12)];
             }
         }
         
-        private final Grad[] grad3 = { new Grad(1, 1, 0), new Grad(-1, 1, 0), new Grad(1, -1, 0), new Grad(-1, -1, 0), new Grad(1, 0, 1), new Grad(-1, 0, 1), new Grad(1, 0, -1), new Grad(-1, 0, -1), new Grad(0, 1, 1), new Grad(0, -1, 1),
-                                       new Grad(0, 1, -1), new Grad(0, -1, -1) };
+        private final Grad[] grad3 = {
+            new Grad(1, 1, 0), new Grad(-1, 1, 0), new Grad(1, -1, 0), new Grad(-1, -1, 0), new Grad(1, 0, 1), new Grad(-1, 0, 1), new Grad(1, 0, -1), new Grad(-1, 0, -1), new Grad(0, 1, 1),
+            new Grad(0, -1, 1),
+            new Grad(0, 1, -1), new Grad(0, -1, -1)
+        };
         
         class Grad {
             public final double x, y, z;
@@ -1142,12 +1177,19 @@ public class sackbut extends JPanel implements Runnable {
             return instance == null ? (instance = new MathUtil()) : instance;
         }
         
-        private final int[] p = { 151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140, 36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148, 247, 120, 234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32, 57, 177, 33,
-                                  88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168, 68, 175, 74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122, 60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245, 40, 244, 102, 143, 54, 65, 25, 63,
-                                  161, 1, 216, 80, 73, 209, 76, 132, 187, 208, 89, 18, 169, 200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109, 198, 173, 186, 3, 64, 52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212, 207, 206, 59,
-                                  227, 47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170, 213, 119, 248, 152, 2, 44, 154, 163, 70, 221, 153, 101, 155, 167, 43, 172, 9, 129, 22, 39, 253, 19, 98, 108, 110, 79, 113, 224, 232, 178, 185, 112, 104, 218, 246, 97,
-                                  228, 251, 34, 242, 193, 238, 210, 144, 12, 191, 179, 162, 241, 81, 51, 145, 235, 249, 14, 239, 107, 49, 192, 214, 31, 181, 199, 106, 157, 184, 84, 204, 176, 115, 121, 50, 45, 127, 4, 150, 254, 138, 236, 205, 93, 222, 114,
-                                  67, 29, 24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180 };
+        private final int[] p = {
+            151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140, 36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148, 247, 120, 234, 75, 0, 26, 197, 62, 94, 252, 219,
+            203, 117, 35, 11, 32, 57, 177, 33,
+            88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168, 68, 175, 74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122, 60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245, 40,
+            244, 102, 143, 54, 65, 25, 63,
+            161, 1, 216, 80, 73, 209, 76, 132, 187, 208, 89, 18, 169, 200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109, 198, 173, 186, 3, 64, 52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118,
+            126, 255, 82, 85, 212, 207, 206, 59,
+            227, 47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170, 213, 119, 248, 152, 2, 44, 154, 163, 70, 221, 153, 101, 155, 167, 43, 172, 9, 129, 22, 39, 253, 19, 98, 108, 110, 79, 113, 224, 232,
+            178, 185, 112, 104, 218, 246, 97,
+            228, 251, 34, 242, 193, 238, 210, 144, 12, 191, 179, 162, 241, 81, 51, 145, 235, 249, 14, 239, 107, 49, 192, 214, 31, 181, 199, 106, 157, 184, 84, 204, 176, 115, 121, 50, 45, 127, 4, 150,
+            254, 138, 236, 205, 93, 222, 114,
+            67, 29, 24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180
+        };
         // To remove the need for index wrapping, double the permutation table length
         private final int[]  perm;
         private final Grad[] gradP;
@@ -1160,10 +1202,10 @@ public class sackbut extends JPanel implements Runnable {
         public double simplex2(final double xin, final double yin) {
             double n0, n1, n2; // Noise contributions from the three corners
             // Skew the input space to determine which simplex cell we're in
-            final double s = (xin + yin) * F2; // Hairy factor for 2D
-            int i = (int) Math.floor(xin + s);
-            int j = (int) Math.floor(yin + s);
-            final double t = (i + j) * G2;
+            final double s  = (xin + yin) * F2; // Hairy factor for 2D
+            int          i  = (int) Math.floor(xin + s);
+            int          j  = (int) Math.floor(yin + s);
+            final double t  = (i + j) * G2;
             final double x0 = xin - i + t; // The x,y distances from the cell origin, unskewed.
             final double y0 = yin - j + t;
             // For the 2D case, the simplex shape is an equilateral triangle.
@@ -1195,21 +1237,21 @@ public class sackbut extends JPanel implements Runnable {
                 n0 = 0;
             } else {
                 t0 *= t0;
-                n0 = t0 * t0 * gi0.dot2(x0, y0); // (x,y) of grad3 used for 2D gradient
+                n0  = t0 * t0 * gi0.dot2(x0, y0); // (x,y) of grad3 used for 2D gradient
             }
             double t1 = 0.5 - x1 * x1 - y1 * y1;
             if (t1 < 0) {
                 n1 = 0;
             } else {
                 t1 *= t1;
-                n1 = t1 * t1 * gi1.dot2(x1, y1);
+                n1  = t1 * t1 * gi1.dot2(x1, y1);
             }
             double t2 = 0.5 - x2 * x2 - y2 * y2;
             if (t2 < 0) {
                 n2 = 0;
             } else {
                 t2 *= t2;
-                n2 = t2 * t2 * gi2.dot2(x2, y2);
+                n2  = t2 * t2 * gi2.dot2(x2, y2);
             }
             // Add contributions from each corner to get the final noise value.
             // The result is scaled to return values in the interval [-1,1].
@@ -1221,9 +1263,8 @@ public class sackbut extends JPanel implements Runnable {
         }
     }
     
-    
     public static void main(String[] args) {
-        final sackbut pk = new sackbut();
+        final sackbut pk               = new sackbut();
         final JButton autoWobbleButton = new JButton("Auto wobble");
         autoWobbleButton.setForeground(pk.getAutoWobble() ? Color.GREEN : Color.RED);
         autoWobbleButton.addActionListener(new ActionListener() {
@@ -1271,7 +1312,7 @@ public class sackbut extends JPanel implements Runnable {
             public void stateChanged(ChangeEvent e) {
                 // UIRd = 3*local_y / (keyboardHeight-20);
                 pk.UITenseness = 1 - Math.cos(power.getValue() / 1000d * Math.PI * 0.5);
-                pk.loudness = Math.pow(pk.UITenseness, 0.25);
+                pk.loudness    = Math.pow(pk.UITenseness, 0.25);
                 if (pk.intensity == 0) pk.smoothFrequency = pk.UIFrequency;
             }
         });
