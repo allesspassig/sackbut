@@ -1,5 +1,5 @@
 
-package sackbut;
+//package sackbut;
 
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -415,9 +415,13 @@ public class sackbut extends JPanel implements Runnable {
     public void run() {
         while (started) {
             while (soundOn) {
-                while (sdl.available() > (int) (.6 * sdl.getBufferSize())) {
-                    for (int i = 0; i < frameSize; ++i) {
-                        frame[i] = double2byte(doGlottisTractStuff(fricative(aspirate(randBuffer[randBufferIdx = (randBufferIdx + 1) % randBuffer.length]))));
+                while (sdl.available()>frameSize) {
+                    for (int i = 0; i < frameSize;) {
+                        final short out = (short)(65535*Math.max(-1,Math.min(1,doGlottisTractStuff(fricative(aspirate(randBuffer[randBufferIdx = (randBufferIdx + 1) % randBuffer.length])))/2d)));
+                        frame[i++] = (byte)((out>>>8)&255);
+                        if (i<frameSize) {
+                            frame[i++] = (byte)(out&255);
+                        }
                     }
                     sdl.write(frame, 0, frameSize);
                 }
@@ -450,9 +454,6 @@ public class sackbut extends JPanel implements Runnable {
         return fricativeMemory[5];
     }
     
-    private byte double2byte(final double in) {
-        return (byte) (64 * in);
-    }
     
     // usually in the range [-1,1]
     // almost always in the range [-2,2]
@@ -824,7 +825,7 @@ public class sackbut extends JPanel implements Runnable {
             e.printStackTrace();
             System.exit(0);
         }
-        frameSize = sdl.getFormat().getFrameSize();
+        frameSize = 1024*sdl.getFormat().getFrameSize();
         frame     = new byte[frameSize];
         
         aspirateConsts  = new double[5];
